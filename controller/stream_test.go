@@ -19,13 +19,13 @@ func TestStreamController_Append(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	stream, err := storage.OpenLogStream(dir)
+	stream, err := storage.OpenLogStream(log, dir)
 	if err != nil {
 		t.Fatalf("open storage directory failed: %v", err)
 	}
 	defer stream.Close()
 
-	syncStrategy := newSyncMonitor(log.Sugar(), stream)
+	syncStrategy := newSyncMonitor(log, stream)
 	defer syncStrategy.Close()
 
 	controller := NewStreamController(log.Sugar(), syncStrategy, stream)

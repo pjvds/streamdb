@@ -24,7 +24,7 @@ type Store interface {
 	Append(id StreamID, payload Payload) (LogOffset, error)
 }
 
-func OpenLogStream(directory string) (*LogStream, error) {
+func OpenLogStream(log *zap.Logger, directory string) (*LogStream, error) {
 	stat, err := os.Stat(directory)
 	if err != nil {
 		return nil, err
@@ -49,6 +49,7 @@ func OpenLogStream(directory string) (*LogStream, error) {
 	}
 
 	logStream := &LogStream{
+		log: log,
 		offset: 1,
 		directory: directory,
 		pageSize:  5e8, // half GB
@@ -62,7 +63,7 @@ func OpenLogStream(directory string) (*LogStream, error) {
 }
 
 type LogStream struct {
-	log *zap.SugaredLogger
+	log *zap.Logger
 
 	offset   int32
 	pages    []*LogPage
@@ -96,10 +97,15 @@ func (this *LogStream) Append(payload Payload) (LogOffset, error) {
 	defer this.lock.Unlock()
 
 	if this.closed {
+		this.log.Debug("append failed", zap.Error(ErrClosed))
 		return LogOffset{}, ErrClosed
 	}
 
 	if !this.tailPage.SpaceLeftFor(payload) {
+		this.log.Debug("tail page full",
+			zap.Int("payload size", payload.SizeOnDisk()),
+			zap.Int64("page size", this.tailPage.size))
+
 		if err := this.rotate(); err != nil {
 			return LogOffset{}, err
 		}
@@ -115,7 +121,10 @@ func (this *LogStream) Append(payload Payload) (LogOffset, error) {
 
 	page := int32(len(this.pages))
 
-	return LogOffset{Offset: offset, Page: page, Location: location }, nil
+	result := LogOffset{Offset: offset, Page: page, Location: location }
+
+	this.log.Debug("append success", zap.Stringer("result", result))
+	return result, nil
 }
 
 func (this *LogStream) Read(offset LogOffset, buffer []byte) (int, error) {

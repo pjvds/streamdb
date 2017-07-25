@@ -24,7 +24,7 @@ type StreamController struct{
 }
 
 type SyncMonitor struct{
-	log *zap.SugaredLogger
+	log *zap.Logger
 	requests chan syncMonitorEntry
 
 	stream *storage.LogStream
@@ -33,7 +33,7 @@ type SyncMonitor struct{
 	closing chan struct{}
 }
 
-func newSyncMonitor(log *zap.SugaredLogger, stream *storage.LogStream) *SyncMonitor{
+func newSyncMonitor(log *zap.Logger, stream *storage.LogStream) *SyncMonitor{
 	monitor := &SyncMonitor{
 		log: log,
 		requests: make(chan syncMonitorEntry),
@@ -52,14 +52,19 @@ type syncMonitorEntry struct{
 }
 
 func (this *SyncMonitor) do() {
-	defer close(this.closed)
-
 	timer := time.NewTimer(50 * time.Millisecond)
-	defer timer.Stop()
+
+	defer func() {
+		timer.Stop()
+		close(this.closed)
+
+		this.log.Debug("sync monitor stopped")
+	}()
+
 
 	offset, err := this.stream.Sync()
 	if err != nil {
-		this.log.Errorw("sync failed", zap.Error(err))
+		this.log.Error("sync failed", zap.Error(err))
 	}
 
 	outstanding := make([]syncMonitorEntry, 0)
@@ -69,16 +74,11 @@ func (this *SyncMonitor) do() {
 		case <-timer.C:
 				offset, err = this.stream.Sync()
 				if err != nil {
-					if err == storage.ErrClosed {
-						this.log.Infow("sync strategy stopped", zap.String("reason", "page closed"))
-						return
-					}
-
-					this.log.Errorw("sync failed", zap.Error(err))
+					this.log.Error("sync failed", zap.Error(err))
 					continue
 				}
 
-			this.log.Debugw("sync success", zap.Stringer("offset", offset))
+			this.log.Debug("sync success", zap.Stringer("offset", offset))
 
 			if len(outstanding) == 0 {
 				continue
@@ -94,7 +94,7 @@ func (this *SyncMonitor) do() {
 				i++
 			}
 			outstanding = outstanding[0:i+1]
-			this.log.Debugw("signalled sync", zap.Int("count", i+1))
+			this.log.Debug("signalled sync", zap.Int("signalled", i+1), zap.Int("outstanding", len(outstanding)))
 
 		case request := <- this.requests:
 				if request.offset <= offset.Offset {
@@ -106,7 +106,6 @@ func (this *SyncMonitor) do() {
 				outstanding = append(outstanding, request)
 
 		case <-this.closing:
-			this.log.Debug("sync monitor close requested")
 			return
 		}
 	}
