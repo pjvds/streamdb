@@ -1,39 +1,102 @@
 package storage_test
 
 import (
+	"io/ioutil"
 	"os"
-	"strconv"
 	"testing"
 
 	"github.com/pjvds/streamdb/storage"
+	"github.com/stretchr/testify/assert"
+	"github.com/pjvds/randombytes"
+	"strconv"
 )
 
-func BenchmarkFileStorageManager_Append_5_Streams_256b_payload(b *testing.B) {
-	manager, err := storage.OpenStorageDirectory(os.TempDir())
+func TestLogStream_Append(t *testing.T) {
+	dir, err := ioutil.TempDir("", "streamdb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	stream, err := storage.OpenLogStream(dir)
+	if err != nil {
+		t.Fatalf("open storage directory failed: %v", err)
+	}
+	defer stream.Close()
+
+
+	payload := []byte("hello-world")
+	offset, err := stream.Append(payload);
+
+	assert.Nil(t, err)
+	assert.Equal(t, storage.LogOffset{
+		Offset: 1,
+		Page: 1,
+		Location: 0,
+	}, offset)
+
+	buffer := make([]byte, 512)
+	n, err := stream.Read(offset, buffer)
+	assert.Nil(t, err)
+
+	messages := storage.NewMessageSet(offset, buffer[0:n]).Scan()
+
+	assert.Len(t, messages, 1)
+	assert.Equal(t, payload, messages[0].Payload)
+}
+
+func TestLogStream_Append_1_million_messages(t *testing.T) {
+	dir, err := ioutil.TempDir("", "streamdb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	stream, err := storage.OpenLogStream(dir)
+	if err != nil {
+		t.Fatalf("open storage directory failed: %v", err)
+	}
+	defer stream.Close()
+
+
+	buffer := make([]byte, 512)
+	for i := 0; i < 1e6; i++ {
+		payload := []byte(strconv.Itoa(i))
+
+		offset, err := stream.Append(payload);
+		assert.Nil(t, err, "append error")
+
+		_, err = stream.Read(offset, buffer)
+		assert.Nil(t, err, "read error")
+
+		assert.Equal(t, payload, storage.NewMessageSet(offset, buffer).Scan()[0].Payload)
+	}
+}
+
+
+func BenchmarkLogStream_Append_10_million_512_byte_messages(b *testing.B) {
+
+	dir, err := ioutil.TempDir("", "streamdb")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	stream, err := storage.OpenLogStream(dir)
 	if err != nil {
 		b.Fatalf("open storage directory failed: %v", err)
 	}
-
-	payload := storage.Payload(make([]byte, 256))
-
-	for i := 0; i < 5; i++ {
-		id := storage.StreamID(strconv.Itoa(i % 5))
-		_, err := manager.Append(id, payload)
-
-		if err != nil {
-			b.Fatalf("initial append to stream %v failed: %v", id, err)
-		}
-	}
+	defer stream.Close()
 
 	b.ResetTimer()
 
-	// write to 5 streams asap
-	for i := 0; i < b.N; i++ {
-		id := storage.StreamID(strconv.Itoa(i % 5))
-		_, err := manager.Append(id, payload)
+	payload := randombytes.Make(512)
+	b.SetBytes(int64(len(payload)) * 10e6)
 
-		if err != nil {
-			b.Fatalf("append to stream %v failed at benchmark iteration: %v", id, i, err)
+	for n := 0; n < b.N; n++ {
+		for i := 0; i < 10e6; i++ {
+			_, err := stream.Append(payload);
+			assert.Nil(b, err, "append error")
 		}
 	}
 
