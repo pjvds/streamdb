@@ -26,22 +26,6 @@ func newHeader(payload Payload) Header {
 	}
 }
 
-func ReadHeaderFromReader(reader io.Reader) Header {
-	header := Header{}
-
-	if err := binary.Read(reader, binary.BigEndian, &header.Magic); err != nil {
-		panic(err.Error())
-	}
-	if err := binary.Read(reader, binary.BigEndian, &header.Length); err != nil {
-		panic(err.Error())
-	}
-	if err := binary.Read(reader, binary.BigEndian, &header.Hash); err != nil {
-		panic(err.Error())
-	}
-
-	return header
-}
-
 func ReadHeader(buffer []byte) Header {
 	if len(buffer) < HEADER_SIZE {
 		panic("buffer too small")
