@@ -1,6 +1,9 @@
 package storage
 
-import "github.com/cespare/xxhash"
+import (
+	"github.com/cespare/xxhash"
+	"fmt"
+)
 
 type StreamID string
 type Payload []byte
@@ -33,6 +36,18 @@ type LogOffset struct{
 	Offset int32
 	Page int32
 	Location int64
+}
+
+func (this LogOffset) After(that LogOffset) bool {
+	return this.Location > that.Location
+}
+
+func (this LogOffset) Before(that LogOffset) bool {
+	return this.Location < that.Location
+}
+
+func (this LogOffset) String() string {
+	return fmt.Sprintf("%v:%v/%v", this.Offset, this.Page,this.Location)
 }
 
 type PagePosition int64

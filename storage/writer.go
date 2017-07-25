@@ -7,6 +7,8 @@ import (
 	"path"
 	"strconv"
 	"sync/atomic"
+	"sync"
+	"go.uber.org/zap"
 )
 
 var (
@@ -60,6 +62,8 @@ func OpenLogStream(directory string) (*LogStream, error) {
 }
 
 type LogStream struct {
+	log *zap.SugaredLogger
+
 	offset   int32
 	pages    []*LogPage
 	tailPage *LogPage
@@ -68,9 +72,13 @@ type LogStream struct {
 	pageSize  int64
 
 	closed bool
+	lock sync.RWMutex
 }
 
-func (this *LogStream) Close() error {
+func (this *LogStream) Close() error{
+	this.lock.Lock()
+	defer this.lock.Unlock()
+
 	if (this.closed) {
 		return ErrClosed
 	}
@@ -84,6 +92,13 @@ func (this *LogStream) Close() error {
 }
 
 func (this *LogStream) Append(payload Payload) (LogOffset, error) {
+	this.lock.Lock()
+	defer this.lock.Unlock()
+
+	if this.closed {
+		return LogOffset{}, ErrClosed
+	}
+
 	if !this.tailPage.SpaceLeftFor(payload) {
 		if err := this.rotate(); err != nil {
 			return LogOffset{}, err
@@ -104,9 +119,33 @@ func (this *LogStream) Append(payload Payload) (LogOffset, error) {
 }
 
 func (this *LogStream) Read(offset LogOffset, buffer []byte) (int, error) {
+	this.lock.RLock()
+	defer this.lock.RUnlock()
+
 	page := this.pages[offset.Page-1]
 	return page.Read(offset.Location, buffer)
 }
+
+func (this *LogStream) Sync() (LogOffset, error) {
+	this.lock.RLock()
+	defer this.lock.RUnlock()
+
+	offset := this.offset
+	page := int32(len(this.pages))
+
+	position, err := this.tailPage.Sync()
+
+	if err != nil {
+		return LogOffset{}, err
+	}
+
+	return LogOffset{
+		Offset:	offset,
+		Page: page,
+		Location: position,
+	}, nil
+}
+
 
 type LogPage struct {
 	file     *os.File
@@ -163,6 +202,11 @@ func (this *LogStream) rotate() error {
 	}
 
 	if err := file.Truncate(this.pageSize); err != nil {
+		file.Close()
+		return err
+	}
+
+	if err := file.Sync(); err != nil {
 		file.Close()
 		return err
 	}

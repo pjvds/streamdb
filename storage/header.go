@@ -2,7 +2,6 @@ package storage
 
 import (
 	"encoding/binary"
-	"io"
 )
 
 const HEADER_SIZE = (
