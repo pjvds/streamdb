@@ -173,13 +173,12 @@ func (this *LogPage) SpaceLeftFor(payload Payload) bool {
 }
 
 func (this *LogPage) Append(payload Payload) (int64, error) {
-	header := newHeader(payload)
-
 	// check if we have enough space left in this page
 	if !this.SpaceLeftFor(payload)  {
 		return 0, ErrPageFull
 	}
 
+	header := newHeader(payload)
 	// write header
 	if _, err := this.file.WriteAt(header.ToBytes(), this.position); err != nil {
 		return 0, err
