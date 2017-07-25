@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync/atomic"
 )
 
 var (
@@ -119,6 +120,14 @@ func (this *LogPage) Read(location int64, buffer []byte) (int, error) {
 	return this.file.ReadAt(buffer, location)
 }
 
+func (this *LogPage) getPosition() int64 {
+	return atomic.LoadInt64(&this.position)
+}
+
+func (this *LogPage) incrementPosition(delta int64) {
+	atomic.AddInt64(&this.position, delta)
+}
+
 func (this *LogPage) Close() error {
 	if this.closed {
 		return ErrClosed
@@ -137,7 +146,7 @@ func (this *LogPage) finalize() error {
 	return nil
 }
 
-var ErrPageFull = errors.New("page full")
+var ErrPageFull = errors.New("no space left in page")
 
 func (this *LogStream) rotate() error {
 	if this.tailPage != nil {
@@ -168,29 +177,45 @@ func (this *LogStream) rotate() error {
 	return nil
 }
 
+// Sync commits the current contents of the log page file to stable storage.
+// It returns the position of the last known write before this commit.
+func (this *LogPage) Sync() (int64, error) {
+	position := this.getPosition()
+
+	if err := this.file.Sync(); err != nil {
+		return 0, err
+	}
+
+	return position, nil
+}
+
 func (this *LogPage) SpaceLeftFor(payload Payload) bool {
-	return this.position + payload.SizeOnDisk64() < this.size
+	return this.getPosition() + payload.SizeOnDisk64() < this.size
 }
 
 func (this *LogPage) Append(payload Payload) (int64, error) {
+	if this.closed {
+		return 0, ErrClosed
+	}
+
 	// check if we have enough space left in this page
 	if !this.SpaceLeftFor(payload)  {
 		return 0, ErrPageFull
 	}
 
 	header := newHeader(payload)
+	position := this.getPosition()
+
 	// write header
-	if _, err := this.file.WriteAt(header.ToBytes(), this.position); err != nil {
+	if _, err := this.file.WriteAt(header.ToBytes(), position); err != nil {
 		return 0, err
 	}
 
 	// write payload
-	if _, err := this.file.WriteAt(payload, this.position+HEADER_SIZE); err != nil {
+	if _, err := this.file.WriteAt(payload, position+HEADER_SIZE); err != nil {
 		return 0, err
 	}
 
-	position := this.position
-	this.position = position + payload.SizeOnDisk64()
-
+	this.incrementPosition(payload.SizeOnDisk64())
 	return position, nil
 }
