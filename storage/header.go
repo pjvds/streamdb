@@ -17,7 +17,7 @@ type Header struct {
 	Hash   uint64
 }
 
-func newHeader(payload Payload) Header {
+func newHeader(payload SinglePayload) Header {
 	return Header{
 		Magic: MAGIC_START,
 		Length: payload.Len32(),

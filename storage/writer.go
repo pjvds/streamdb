@@ -21,7 +21,7 @@ var (
 )
 
 type Store interface {
-	Append(id StreamID, payload Payload) (LogOffset, error)
+	Append(id StreamID, payload SinglePayload) (LogOffset, error)
 }
 
 func OpenLogStream(log *zap.Logger, directory string) (*LogStream, error) {
@@ -256,19 +256,14 @@ func (this *LogPage) Append(payload Payload) (int64, error) {
 		return 0, ErrPageFull
 	}
 
-	header := newHeader(payload)
 	position := this.getPosition()
 
 	// write header
-	if _, err := this.file.WriteAt(header.ToBytes(), position); err != nil {
+	if n, err := this.file.WriteAt(payload.ToBytes(), position); err != nil {
 		return 0, err
+	} else {
+		this.incrementPosition(int64(n))
 	}
 
-	// write payload
-	if _, err := this.file.WriteAt(payload, position+HEADER_SIZE); err != nil {
-		return 0, err
-	}
-
-	this.incrementPosition(payload.SizeOnDisk64())
 	return position, nil
 }

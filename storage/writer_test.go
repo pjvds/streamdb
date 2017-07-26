@@ -9,16 +9,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/pjvds/randombytes"
 	"strconv"
+	"go.uber.org/zap"
 )
 
-func TestLogStream_Append(t *testing.T) {
+func TestLogStream_Append_and_Read(t *testing.T) {
+	log := zap.NewNop()
+
 	dir, err := ioutil.TempDir("", "streamdb")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
 
-	stream, err := storage.OpenLogStream(dir)
+	stream, err := storage.OpenLogStream(log, dir)
 	if err != nil {
 		t.Fatalf("open storage directory failed: %v", err)
 	}
@@ -46,13 +49,14 @@ func TestLogStream_Append(t *testing.T) {
 }
 
 func TestLogStream_Append_1_million_messages(t *testing.T) {
+	log := zap.NewNop()
 	dir, err := ioutil.TempDir("", "streamdb")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
 
-	stream, err := storage.OpenLogStream(dir)
+	stream, err := storage.OpenLogStream(log, dir)
 	if err != nil {
 		t.Fatalf("open storage directory failed: %v", err)
 	}
@@ -75,14 +79,14 @@ func TestLogStream_Append_1_million_messages(t *testing.T) {
 
 
 func BenchmarkLogStream_Append_10_million_512_byte_messages(b *testing.B) {
-
+	log := zap.NewNop()
 	dir, err := ioutil.TempDir("", "streamdb")
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
 
-	stream, err := storage.OpenLogStream(dir)
+	stream, err := storage.OpenLogStream(log, dir)
 	if err != nil {
 		b.Fatalf("open storage directory failed: %v", err)
 	}
