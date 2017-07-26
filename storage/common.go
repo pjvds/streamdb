@@ -19,7 +19,13 @@ type PayloadSet struct{
 	buffer bytes.Buffer
 }
 
-func (this PayloadSet) Append(payload SinglePayload) int {
+func NewPayloadSet() *PayloadSet{
+	return &PayloadSet{
+		headers: make([]HeaderAndOffset, 0),
+	}
+}
+
+func (this *PayloadSet) Append(payload SinglePayload) int {
 	header := HeaderAndOffset{
 		Header: newHeader(payload),
 		Offset: int64(this.buffer.Len()),
@@ -84,9 +90,18 @@ func (this SinglePayload) SizeOnDisk64() int64 {
 }
 
 type Payload interface {
+	EntryCount() int
 	ToBytes() []byte
 	SizeOnDisk() int
 	SizeOnDisk64() int64
+}
+
+func (this PayloadSet) EntryCount() int {
+	return len(this.headers)
+}
+
+func (this SinglePayload) EntryCount() int {
+	return 1
 }
 
 func (this SinglePayload) Hash() uint64 {

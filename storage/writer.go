@@ -117,7 +117,7 @@ func (this *LogStream) Append(payload Payload) (LogOffset, error) {
 	}
 
 	offset := this.offset
-	this.offset = offset + 1
+	this.offset = offset + int32(payload.EntryCount())
 
 	page := int32(len(this.pages))
 

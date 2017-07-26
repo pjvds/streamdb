@@ -29,7 +29,7 @@ func TestLogStream_Append_and_Read(t *testing.T) {
 
 
 	payload := []byte("hello-world")
-	offset, err := stream.Append(payload);
+	offset, err := stream.Append(storage.SinglePayload(payload));
 
 	assert.Nil(t, err)
 	assert.Equal(t, storage.LogOffset{
@@ -67,7 +67,7 @@ func TestLogStream_Append_1_million_messages(t *testing.T) {
 	for i := 0; i < 1e6; i++ {
 		payload := []byte(strconv.Itoa(i))
 
-		offset, err := stream.Append(payload);
+		offset, err := stream.Append(storage.SinglePayload(payload));
 		assert.Nil(t, err, "append error")
 
 		_, err = stream.Read(offset, buffer)
@@ -99,7 +99,7 @@ func BenchmarkLogStream_Append_10_million_512_byte_messages(b *testing.B) {
 
 	for n := 0; n < b.N; n++ {
 		for i := 0; i < 10e6; i++ {
-			_, err := stream.Append(payload);
+			_, err := stream.Append(storage.SinglePayload(payload));
 			assert.Nil(b, err, "append error")
 		}
 	}
