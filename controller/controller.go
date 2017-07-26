@@ -12,9 +12,18 @@ var ErrTimeout = errors.New("timeout")
 var ErrClosed = errors.New("closed")
 
 func NewStreamController(log *zap.SugaredLogger, syncMonitor *SyncMonitor, stream *storage.LogStream) *StreamController{
+	accumulator := &AppendRequestCoordinator{
+		stream: stream,
+		dispatch: make(chan AppendPayloadRequestEnvelope),
+		accumulate: make(chan AppendRequestEnvelope),
+	}
+	go accumulator.doAccumulation()
+	go accumulator.doAppend()
+
 	return &StreamController{
 		syncMonitor: syncMonitor,
 		stream: stream,
+		accumulator: accumulator,
 	}
 }
 
@@ -22,8 +31,7 @@ type StreamController struct{
 	syncMonitor *SyncMonitor
 	stream *storage.LogStream
 
-	accumulator chan AppendRequestEnvelope
-	appender chan []AppendRequestEnvelope
+	accumulator *AppendRequestCoordinator
 }
 
 type SyncMonitor struct{
@@ -82,17 +90,20 @@ type AppendPayloadReplyEnvelope struct{
 	Err error
 }
 
-type AppendRequestAccumulator struct {
+type AppendRequestCoordinator struct {
 	accumulate chan AppendRequestEnvelope
 	dispatch chan AppendPayloadRequestEnvelope
-	stream storage.LogStream
+
+	stream *storage.LogStream
 }
 
-func (this AppendRequestAccumulator) doAccumulation() {
+func (this AppendRequestCoordinator) doAccumulation() {
 	for {
+		dispatched := false
+
 		select {
 		case request := <- this.accumulate:
-			set := &storage.PayloadSet{}
+			set := storage.NewPayloadSet()
 			set.Append(request.Request.Payload)
 
 			storageRequest := AppendPayloadRequestEnvelope{
@@ -100,20 +111,20 @@ func (this AppendRequestAccumulator) doAccumulation() {
 				Payload: set,
 			}
 
-			for {
+			for !dispatched{
 				select {
 				case incoming := <- this.accumulate:
 					set.Append(incoming.Request.Payload)
 					storageRequest.Requests = append(storageRequest.Requests, incoming)
 				case this.dispatch <- storageRequest:
-					break
+					dispatched = true
 				}
 			}
 		}
 	}
 }
 
-func (this AppendRequestAccumulator) doAppend() {
+func (this AppendRequestCoordinator) doAppend() {
 	for request := range this.dispatch {
 		offset, err := this.stream.Append(request.Payload)
 		if err != nil {
@@ -124,7 +135,7 @@ func (this AppendRequestAccumulator) doAppend() {
 	}
 }
 
-func (this AppendRequestAccumulator) Append(request *AppendRequest) (*AppendReply, error) {
+func (this AppendRequestCoordinator) Append(request *AppendRequest) (*AppendReply, error) {
 	reply := make(chan AppendReplyEnvelope, 1)
 
 	this.accumulate <- AppendRequestEnvelope{
@@ -243,19 +254,16 @@ func (this *SyncMonitor) waitForSync(ctx context.Context, offset int32) error {
 }
 
 func (this *StreamController) append(ctx context.Context, request *AppendRequest) (*AppendReply, error) {
-	offset, err := this.stream.Append(storage.SinglePayload(request.Payload))
+	reply, err := this.accumulator.Append(request)
 	if err != nil {
 		return nil, err
 	}
 
 	if request.Sync {
-		if err := this.syncMonitor.waitForSync(ctx, offset.Offset); err != nil {
-			panic(err)
+		if err := this.syncMonitor.waitForSync(ctx, int32(reply.Offset)); err != nil {
 			return nil, err
 		}
 	}
 
-	return &AppendReply{
-		Offset: int64(offset.Offset),
-	}, nil
+	return reply, nil
 }
