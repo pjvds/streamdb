@@ -5,13 +5,15 @@ import (
 	"time"
 	"go.uber.org/zap"
 	"errors"
-	"context"
+	"golang.org/x/net/context"
+	"fmt"
 )
 
 var ErrTimeout = errors.New("timeout")
 var ErrClosed = errors.New("closed")
 
-func NewStreamController(log *zap.SugaredLogger, syncMonitor *SyncMonitor, stream *storage.LogStream) *StreamController{
+func NewStreamController(log *zap.Logger, stream *storage.LogStream) *StreamController{
+	syncMonitor := newSyncMonitor(log, stream)
 	accumulator := &AppendRequestCoordinator{
 		stream: stream,
 		dispatch: make(chan AppendPayloadRequestEnvelope),
@@ -73,15 +75,17 @@ func (this AppendPayloadRequestEnvelope) Fail(err error) {
 
 func (this AppendPayloadRequestEnvelope) Success(offset storage.LogOffset) {
 	individualOffset := int64(offset.Offset)
+	individualLocation := offset.Location
 
 	for _, request := range this.Requests{
 		request.Reply <- AppendReplyEnvelope{
 			Reply: &AppendReply{
-				Offset: individualOffset,
+				Offset: fmt.Sprintf("%v:%v/%v", individualOffset, offset.Page, individualLocation),
 			},
 		}
 
-		individualOffset += storage.SinglePayload(request.Request.Payload).SizeOnDisk64()
+		individualOffset += 1
+		individualLocation += storage.SinglePayload(request.Request.Payload).SizeOnDisk64()
 	}
 }
 
@@ -233,9 +237,10 @@ func (this *SyncMonitor) Close() {
 	}
 }
 
-func (this *SyncMonitor) waitForSync(ctx context.Context, offset int32) error {
+func (this *SyncMonitor) waitForSync(ctx context.Context, offset storage.LogOffset) error {
+
 	request := syncMonitorEntry{
-		offset: offset,
+		offset: offset.Offset,
 		synced: make(chan struct{}, 1),
 	}
 
@@ -253,14 +258,19 @@ func (this *SyncMonitor) waitForSync(ctx context.Context, offset int32) error {
 	}
 }
 
-func (this *StreamController) append(ctx context.Context, request *AppendRequest) (*AppendReply, error) {
+func (this *StreamController) Append(ctx context.Context, request *AppendRequest) (*AppendReply, error) {
 	reply, err := this.accumulator.Append(request)
 	if err != nil {
 		return nil, err
 	}
 
 	if request.Sync {
-		if err := this.syncMonitor.waitForSync(ctx, int32(reply.Offset)); err != nil {
+		parsed, err := storage.ParseLogOffset(reply.Offset)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := this.syncMonitor.waitForSync(ctx, parsed); err != nil {
 			return nil, err
 		}
 	}

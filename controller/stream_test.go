@@ -30,9 +30,9 @@ func TestStreamController_Append(t *testing.T) {
 	syncStrategy := newSyncMonitor(log, stream)
 	defer syncStrategy.Close()
 
-	controller := NewStreamController(log.Sugar(), syncStrategy, stream)
+	controller := NewStreamController(log, stream)
 
-	reply, err := controller.append(context.Background(), &AppendRequest{
+	reply, err := controller.Append(context.Background(), &AppendRequest{
 		Sync: true,
 		Payload: []byte("hello-world"),
 	})
@@ -57,10 +57,7 @@ func BenchmarkStreamController_Append_100k_messages_with_50_concurrent_clients_n
 	}
 	defer stream.Close()
 
-	syncStrategy := newSyncMonitor(log, stream)
-	defer syncStrategy.Close()
-
-	controller := NewStreamController(log.Sugar(), syncStrategy, stream)
+	controller := NewStreamController(log, stream)
 
 	toSend := int32(1e5)
 
@@ -74,7 +71,7 @@ func BenchmarkStreamController_Append_100k_messages_with_50_concurrent_clients_n
 				defer work.Done()
 
 				for {
-					_, err := controller.append(context.Background(), &AppendRequest{
+					_, err := controller.Append(context.Background(), &AppendRequest{
 						Sync:    false,
 						Payload: []byte("hello-world"),
 					})
@@ -110,10 +107,7 @@ func BenchmarkStreamController_Append_100k_messages_with_50_concurrent_clients_s
 	}
 	defer stream.Close()
 
-	syncStrategy := newSyncMonitor(log, stream)
-	defer syncStrategy.Close()
-
-	controller := NewStreamController(log.Sugar(), syncStrategy, stream)
+	controller := NewStreamController(log, stream)
 
 	toSend := int32(1e5)
 
@@ -127,7 +121,7 @@ func BenchmarkStreamController_Append_100k_messages_with_50_concurrent_clients_s
 				defer work.Done()
 
 				for {
-					_, err := controller.append(context.Background(), &AppendRequest{
+					_, err := controller.Append(context.Background(), &AppendRequest{
 						Sync:    true,
 						Payload: []byte("hello-world"),
 					})
