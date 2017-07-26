@@ -4,6 +4,9 @@ import (
 	"github.com/cespare/xxhash"
 	"fmt"
 	"bytes"
+	"regexp"
+	"github.com/pkg/errors"
+	"strconv"
 )
 
 type StreamID string
@@ -112,6 +115,36 @@ type LogOffset struct{
 	Offset int32
 	Page int32
 	Location int64
+}
+
+func ParseLogOffset(value string) (LogOffset, error) {
+	r := regexp.MustCompile("(\\d+):(\\d+)\\/(\\d+)")
+	matches := r.FindAllString(value, 3)
+
+	if len(matches) != 3 {
+		return LogOffset{}, errors.Errorf("invalid log offset string: %v", value)
+	}
+
+	offset, err := strconv.ParseInt(matches[0], 32, 10)
+	if err != nil {
+		return LogOffset{}, errors.Errorf("invalid offset, %v: %v", err, value)
+	}
+
+	page, err  := strconv.ParseInt(matches[1], 32, 10)
+	if err != nil {
+		return LogOffset{}, errors.Errorf("invalid page, %v: %v", err, value)
+	}
+
+	location, err := strconv.ParseInt(matches[2], 64, 10)
+	if err != nil {
+		return LogOffset{}, errors.Errorf("invalid location, %v: %v", err, value)
+	}
+
+	return LogOffset{
+		Offset: int32(offset),
+		Page: int32(page),
+		Location: location,
+	}, nil
 }
 
 func (this LogOffset) After(that LogOffset) bool {
