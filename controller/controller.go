@@ -6,15 +6,18 @@ import (
 	"go.uber.org/zap"
 	"errors"
 	"golang.org/x/net/context"
-	"fmt"
+	"github.com/uber-go/tally"
 )
 
 var ErrTimeout = errors.New("timeout")
 var ErrClosed = errors.New("closed")
 
-func NewStreamController(log *zap.Logger, stream *storage.LogStream) *StreamController{
+func NewStreamController(log *zap.Logger, scope tally.Scope, stream *storage.LogStream) *StreamController{
 	syncMonitor := newSyncMonitor(log, stream)
 	accumulator := &AppendRequestCoordinator{
+		accumulationTime: scope.Timer("append-coordinator.accumulation.time"),
+		dispatchTime: scope.Timer("append-coordinator.dispatch.time"),
+		dispatchSize: scope.Gauge("append-coordinator.dispatch.size"),
 		stream: stream,
 		dispatch: make(chan AppendPayloadRequestEnvelope),
 		accumulate: make(chan AppendRequestEnvelope),
@@ -23,6 +26,9 @@ func NewStreamController(log *zap.Logger, stream *storage.LogStream) *StreamCont
 	go accumulator.doAppend()
 
 	return &StreamController{
+		requests: scope.Counter("controller.request.count"),
+		requestLatency: scope.Timer("controller.request.latency"),
+
 		syncMonitor: syncMonitor,
 		stream: stream,
 		accumulator: accumulator,
@@ -33,11 +39,15 @@ type StreamController struct{
 	syncMonitor *SyncMonitor
 	stream *storage.LogStream
 
+	requests tally.Counter
+	requestLatency tally.Timer
+
 	accumulator *AppendRequestCoordinator
 }
 
 type SyncMonitor struct{
 	log *zap.Logger
+
 	requests chan syncMonitorEntry
 
 	stream *storage.LogStream
@@ -74,13 +84,13 @@ func (this AppendPayloadRequestEnvelope) Fail(err error) {
 }
 
 func (this AppendPayloadRequestEnvelope) Success(offset storage.LogOffset) {
-	individualOffset := int64(offset.Offset)
+	individualOffset := offset.Offset
 	individualLocation := offset.Location
 
 	for _, request := range this.Requests{
 		request.Reply <- AppendReplyEnvelope{
 			Reply: &AppendReply{
-				Offset: fmt.Sprintf("%v:%v/%v", individualOffset, offset.Page, individualLocation),
+				Offset: storage.LogOffset{Offset: individualOffset, Page: offset.Page, Location: individualLocation}.String(),
 			},
 		}
 
@@ -98,6 +108,10 @@ type AppendRequestCoordinator struct {
 	accumulate chan AppendRequestEnvelope
 	dispatch chan AppendPayloadRequestEnvelope
 
+	accumulationTime tally.Timer
+	dispatchTime tally.Timer
+	dispatchSize tally.Gauge
+
 	stream *storage.LogStream
 }
 
@@ -107,6 +121,8 @@ func (this AppendRequestCoordinator) doAccumulation() {
 
 		select {
 		case request := <- this.accumulate:
+			dispatchTimeStopwatch := this.dispatchTime.Start()
+
 			set := storage.NewPayloadSet()
 			set.Append(request.Request.Payload)
 
@@ -121,6 +137,9 @@ func (this AppendRequestCoordinator) doAccumulation() {
 					set.Append(incoming.Request.Payload)
 					storageRequest.Requests = append(storageRequest.Requests, incoming)
 				case this.dispatch <- storageRequest:
+					dispatchTimeStopwatch.Stop()
+					this.dispatchSize.Update(float64(len(storageRequest.Requests)))
+
 					dispatched = true
 				}
 			}
@@ -259,6 +278,10 @@ func (this *SyncMonitor) waitForSync(ctx context.Context, offset storage.LogOffs
 }
 
 func (this *StreamController) Append(ctx context.Context, request *AppendRequest) (*AppendReply, error) {
+	this.requests.Inc(1)
+	stopwatch := this.requestLatency.Start()
+	defer stopwatch.Stop()
+
 	reply, err := this.accumulator.Append(request)
 	if err != nil {
 		return nil, err
