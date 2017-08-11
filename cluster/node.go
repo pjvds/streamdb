@@ -11,21 +11,24 @@ import (
 type Node struct{
 	log *zap.Logger
 
-	client *clientv3.Client
+	id string
+	address string
 
-	options NodeOptions
+	client *clientv3.Client
 
 	ctx context.Context
 
-	elector MasterElection
+	store StateStore
+	elector Elector
 }
 
 type NodeState interface{
 	Run(ctx context.Context) (NodeState, error)
 }
 
-type MasterElection interface{
-	Run(context.Context) (Election, error)
+type Elector interface{
+	Elect(ctx context.Context) (Election, error)
+	Follow(ctx context.Context) Follower
 }
 
 type LeaderState struct{
@@ -37,18 +40,23 @@ type MasterLock interface{
 	Lost() <-chan struct{}
 }
 
-type Election struct{
-	Won chan MasterLock
-}
+type Election <-chan MasterLock
+type Follower <-chan string
 
 type InitState struct{
 	log *zap.Logger
-	elector MasterElection
+	id string
+	address string
+	store StateStore
+	elector Elector
 }
 
-func NewInitState(log *zap.Logger, elector MasterElection) (*InitState) {
+func NewInitState(log *zap.Logger, id string, address string, store StateStore, elector Elector) (*InitState) {
 	return &InitState{
 		log: log,
+		id: id,
+		address: address,
+		store: store,
 		elector: elector,
 	}
 }
@@ -57,42 +65,56 @@ type MasterState struct{
 	log *zap.Logger
 	ctx context.Context
 	lock MasterLock
-	election Election
+	elector Elector
 }
 
-func NewMasterState(log *zap.Logger, lock MasterLock, election Election) (*MasterState) {
+func NewMasterState(log *zap.Logger, lock MasterLock, elector Elector) (*MasterState) {
 	return &MasterState{
-		log: log,
+		log: log.Named("MasterState"),
 		lock: lock,
-		election: election,
+		elector: elector,
 	}
 }
 
 type FollowerState struct{
 	log *zap.Logger
-	election Election
+	elector Elector
 }
 
-func NewFollowerState(log *zap.Logger, election Election) (*FollowerState) {
+func NewFollowerState(log *zap.Logger, elector Elector) (*FollowerState) {
 	return &FollowerState{
-		log: log,
-		election: election,
+		log: log.Named("FollowerState"),
+		elector: elector,
 	}
 }
 
 func (this *FollowerState) Run(ctx context.Context) (NodeState, error) {
+	localCtx, cancel := context.WithCancel(ctx)
+
+	leaderChanges := this.elector.Follow(localCtx)
+	wins, err := this.elector.Elect(ctx)
+	if err != nil {
+		return nil, errors.WithMessage(err, "elector failed to elect")
+	}
+
+	defer cancel()
+
+	leader := "<unknown>"
+
 	for {
 		select {
 		case <-ctx.Done():
 			this.log.Info("follower state done")
 			return nil, nil
 		case <-time.After(1 * time.Second):
-			this.log.Info("following")
-		case lock, ok := <-this.election.Won:
+			this.log.Info("following " + leader)
+		case leader = <- leaderChanges:
+			this.log.Info("new leader", zap.String("leader", leader))
+		case lock, ok := <-wins:
 			if !ok {
 				return nil, errors.New("election closed")
 			}
-			return NewMasterState(this.log, lock, this.election), nil
+			return NewMasterState(this.log, lock, this.elector), nil
 		}
 	}
 }
@@ -107,27 +129,32 @@ func (this *MasterState) Run(ctx context.Context) (NodeState, error) {
 			this.log.Info("mastering")
 		case <-this.lock.Lost():
 			this.log.Info("master lock lost")
-			return NewFollowerState(this.log, this.election), nil
+			return NewFollowerState(this.log, this.elector), nil
 		}
 	}
 }
 
 func (this *InitState) Run(ctx context.Context) (NodeState, error) {
-	election, err := this.elector.Run(ctx)
-	if err != nil {
-		return nil, errors.WithMessage(err, "elector run failed")
+	if err := this.store.UpdateNodeAddress(this.id, this.address); err != nil {
+		return nil, errors.WithMessage(err, "update node address failed")
+	}
+	if err := this.store.UpdateNodeLastSeen(this.id, time.Now().UTC()); err != nil {
+		return nil, errors.WithMessage(err, "update node last seen failed")
 	}
 
-	return NewFollowerState(this.log, election), nil
+	return NewFollowerState(this.log, this.elector), nil
 }
 
 type NodeOptions struct{
+	Id string
 	Address string
 }
 
-func NewCluster(log *zap.Logger, elector MasterElection, options NodeOptions) (*Node, error) {
+func NewCluster(log *zap.Logger, store StateStore, elector Elector, options NodeOptions) (*Node, error) {
 	return &Node{
-		options: options,
+		id: options.Id,
+		address: options.Address,
+		store: store,
 
 		log: log,
 		elector: elector,
@@ -135,10 +162,26 @@ func NewCluster(log *zap.Logger, elector MasterElection, options NodeOptions) (*
 }
 
 func (this *Node) Run(ctx context.Context) error {
-	state := NodeState(NewInitState(this.log, this.elector))
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		for {
+			select{
+			case <-runCtx.Done():
+				return
+			case <-time.After(5 * time.Second):
+				if err := this.store.UpdateNodeLastSeen(this.id, time.Now().UTC()); err != nil {
+					this.log.Debug("node last seen state update failed", zap.Error(err))
+				}
+			}
+		}
+	}()
+
+	state := NodeState(NewInitState(this.log, this.id, this.address, this.store, this.elector))
 	for {
-		next, err := state.Run(ctx)
-		if err != nil {
+		next, err := state.Run(runCtx)
+		if next == nil || err != nil {
 			return err
 		}
 		state = next
