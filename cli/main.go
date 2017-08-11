@@ -12,6 +12,7 @@ import (
 	"sync"
 	"github.com/pjvds/streamdb/cluster"
 	"github.com/coreos/etcd/clientv3"
+	"github.com/rs/xid"
 )
 
 
@@ -88,9 +89,12 @@ func main() {
 					Name: "etcd",
 					Value: "127.0.0.1:2379",
 				},
+				cli.StringFlag{
+					Name: "id",
+				},
 			},
 			Action: func(c *cli.Context) error {
-				log, err := zap.NewProduction()
+				log, err := zap.NewDevelopment()
 				if err != nil {
 					panic(err)
 				}
@@ -100,9 +104,18 @@ func main() {
 					log.Error("dial etcd failed", zap.Error(err))
 					return err
 				}
+				defer etcdClient.Close()
 
-				elector := cluster.MasterElection(etcd.NewMasterElection(log, etcdClient))
-				cluster, err := cluster.NewCluster(log, elector, cluster.NodeOptions{
+				id := c.String("id")
+				if len(id) == 0 {
+					id = xid.New().String()
+				}
+
+				store := cluster.StateStore(etcd.NewStateStore(log,etcdClient))
+				elector := cluster.Elector(etcd.NewMasterElection(log, etcdClient, "/leader", id))
+
+				cluster, err := cluster.NewCluster(log, store, elector, cluster.NodeOptions{
+					Id: id,
 					Address: c.String("address"),
 				})
 				if err != nil {
@@ -115,52 +128,6 @@ func main() {
 					return err
 				}
 				return nil
-
-				//statter, err := statsd.NewBufferedClient("127.0.0.1:8125",
-				//	"stats", 100*time.Millisecond, 1440)
-				//if err != nil {
-				//	log.Error("could not create statsd client", zap.Error(err))
-				//	return err
-				//}
-				//
-				//opts := statsdreporter.Options{}
-				//r := statsdreporter.NewReporter(statter, opts)
-				//scope, closer := tally.NewRootScope(tally.ScopeOptions{
-				//	Prefix:   "streamdb-server",
-				//	Tags:     map[string]string{},
-				//	Reporter: r,
-				//}, 1*time.Second)
-				//defer closer.Close()
-				//
-				//dir, err := ioutil.TempDir("", "streamdb")
-				//if err != nil {
-				//	log.Error("failed to create temp directory", zap.Error(err))
-				//	return err
-				//}
-				//log.Info("created temp directory for data usage", zap.String("dir", dir))
-				//defer os.RemoveAll(dir)
-				//
-				//stream, err := storage.OpenLogStream(log, dir)
-				//if err != nil {
-				//	log.Error("failed to open storage directory", zap.Error(err))
-				//	return errors.Errorf("open storage directory failed: %v", err)
-				//}
-				//defer stream.Close()
-				//
-				//listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", 8888))
-				//if err != nil {
-				//	log.Error("failed to listen", zap.Error(err))
-				//	return errors.Errorf("failed to listen: %v", err)
-				//}
-				//defer listener.Close()
-				//
-				//server := grpc.NewServer()
-				//streamController := controller.NewStreamController(log, scope, stream)
-				//
-				//controller.RegisterStreamControllerServer(server, streamController)
-				//
-				//log.Info("serving")
-				//return server.Serve(listener)
 			},
 		},
 
