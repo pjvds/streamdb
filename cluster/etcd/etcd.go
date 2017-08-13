@@ -27,10 +27,15 @@ func NewMasterElection(log *zap.Logger, client *clientv3.Client, key, value stri
 
 type MasterLock struct{
 	session *concurrency.Session
+	election concurrency.Election
 }
 
 func (this *MasterLock) Lost() <-chan struct{} {
 	return this.session.Done()
+}
+
+func (this *MasterLock) Resign() {
+	this.election.Resign(context.Background())
 }
 
 func (this *EtcdElector) Follow(ctx context.Context) cluster.Follower {
@@ -51,7 +56,13 @@ func (this *EtcdElector) follow(ctx context.Context, changes chan string) {
 
 	election := concurrency.NewElection(session, this.key)
 	for observation := range election.Observe(ctx) {
-		changes <- string(observation.Kvs[0].Value)
+		value := string(observation.Kvs[0].Value)
+
+		// Filter out our own value. If the current node became leader
+		// it will get notified via the elect channel.
+		if value != this.value {
+			changes <- value
+		}
 	}
 }
 

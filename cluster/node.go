@@ -23,6 +23,7 @@ type Node struct{
 }
 
 type NodeState interface{
+	Name() string
 	Run(ctx context.Context) (NodeState, error)
 }
 
@@ -38,6 +39,7 @@ type LeaderState struct{
 
 type MasterLock interface{
 	Lost() <-chan struct{}
+	Resign()
 }
 
 type Election <-chan MasterLock
@@ -68,6 +70,10 @@ type MasterState struct{
 	elector Elector
 }
 
+func (this *MasterState) Name() string {
+	return "master"
+}
+
 func NewMasterState(log *zap.Logger, lock MasterLock, elector Elector) (*MasterState) {
 	return &MasterState{
 		log: log.Named("MasterState"),
@@ -86,6 +92,10 @@ func NewFollowerState(log *zap.Logger, elector Elector) (*FollowerState) {
 		log: log.Named("FollowerState"),
 		elector: elector,
 	}
+}
+
+func (this *FollowerState) Name() string {
+	return "follower"
 }
 
 func (this *FollowerState) Run(ctx context.Context) (NodeState, error) {
@@ -134,6 +144,10 @@ func (this *MasterState) Run(ctx context.Context) (NodeState, error) {
 	}
 }
 
+func (this *InitState) Name() string {
+	return "init"
+}
+
 func (this *InitState) Run(ctx context.Context) (NodeState, error) {
 	if err := this.store.UpdateNodeAddress(this.id, this.address); err != nil {
 		return nil, errors.WithMessage(err, "update node address failed")
@@ -180,6 +194,8 @@ func (this *Node) Run(ctx context.Context) error {
 
 	state := NodeState(NewInitState(this.log, this.id, this.address, this.store, this.elector))
 	for {
+		this.log.Debug("running state", zap.String("state", state.Name()))
+
 		next, err := state.Run(runCtx)
 		if next == nil || err != nil {
 			return err
