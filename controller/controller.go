@@ -90,7 +90,7 @@ func (this AppendPayloadRequestEnvelope) Success(offset storage.LogOffset) {
 	for _, request := range this.Requests{
 		request.Reply <- AppendReplyEnvelope{
 			Reply: &AppendReply{
-				Offset: storage.LogOffset{Offset: individualOffset, Page: offset.Page, Location: individualLocation}.String(),
+				Offset: &Offset{Offset: individualOffset, Page: offset.Page, Location: individualLocation},
 			},
 		}
 
@@ -113,6 +113,8 @@ type AppendRequestCoordinator struct {
 	dispatchSize tally.Gauge
 
 	stream *storage.LogStream
+
+	lease chan struct{}
 }
 
 func (this AppendRequestCoordinator) doAccumulation() {
@@ -184,7 +186,7 @@ func newSyncMonitor(log *zap.Logger, stream *storage.LogStream) *SyncMonitor{
 }
 
 type syncMonitorEntry struct{
-	offset int32
+	offset int64
 	synced chan struct{}
 }
 
@@ -288,15 +290,18 @@ func (this *StreamController) Append(ctx context.Context, request *AppendRequest
 	}
 
 	if request.Sync {
-		parsed, err := storage.ParseLogOffset(reply.Offset)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := this.syncMonitor.waitForSync(ctx, parsed); err != nil {
+		if err := this.syncMonitor.waitForSync(ctx, storage.LogOffset{
+			Offset: reply.Offset.Offset,
+			Page: reply.Offset.Page,
+			Location: reply.Offset.Location,
+		}); err != nil {
 			return nil, err
 		}
 	}
 
 	return reply, nil
+}
+
+func (this *StreamController) Read(ctx context.Context, request *ReadRequest) (*ReadReply, error) {
+	return nil, errors.New("not implemented")
 }

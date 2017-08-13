@@ -20,6 +20,13 @@ package controller;
 service StreamController {
   // Sends a greeting
   rpc Append (AppendRequest) returns (AppendReply) {}
+  rpc Read (ReadRequest) returns (ReadReply) {}
+}
+
+message Offset{
+    int64 offset = 1;
+    int32 page = 2;
+    int64 location = 3;
 }
 
 // The request message containing the user's name.
@@ -31,5 +38,15 @@ message AppendRequest{
 
 // The response message containing the greetings
 message AppendReply {
-  string offset = 1;
+  Offset offset = 1;
+}
+
+message ReadRequest {
+    Offset offset = 1;
+}
+
+message ReadReply {
+    Offset from = 1;
+    Offset next = 2;
+    bytes payload = 3;
 }

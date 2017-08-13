@@ -8,8 +8,11 @@ It is generated from these files:
 	stream.proto
 
 It has these top-level messages:
+	Offset
 	AppendRequest
 	AppendReply
+	ReadRequest
+	ReadReply
 */
 package controller
 
@@ -33,6 +36,38 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
+type Offset struct {
+	Offset   int64 `protobuf:"varint,1,opt,name=offset" json:"offset,omitempty"`
+	Page     int32 `protobuf:"varint,2,opt,name=page" json:"page,omitempty"`
+	Location int64 `protobuf:"varint,3,opt,name=location" json:"location,omitempty"`
+}
+
+func (m *Offset) Reset()                    { *m = Offset{} }
+func (m *Offset) String() string            { return proto.CompactTextString(m) }
+func (*Offset) ProtoMessage()               {}
+func (*Offset) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+
+func (m *Offset) GetOffset() int64 {
+	if m != nil {
+		return m.Offset
+	}
+	return 0
+}
+
+func (m *Offset) GetPage() int32 {
+	if m != nil {
+		return m.Page
+	}
+	return 0
+}
+
+func (m *Offset) GetLocation() int64 {
+	if m != nil {
+		return m.Location
+	}
+	return 0
+}
+
 // The request message containing the user's name.
 type AppendRequest struct {
 	Payload []byte `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"`
@@ -42,7 +77,7 @@ type AppendRequest struct {
 func (m *AppendRequest) Reset()                    { *m = AppendRequest{} }
 func (m *AppendRequest) String() string            { return proto.CompactTextString(m) }
 func (*AppendRequest) ProtoMessage()               {}
-func (*AppendRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+func (*AppendRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
 
 func (m *AppendRequest) GetPayload() []byte {
 	if m != nil {
@@ -60,24 +95,75 @@ func (m *AppendRequest) GetSync() bool {
 
 // The response message containing the greetings
 type AppendReply struct {
-	Offset string `protobuf:"bytes,1,opt,name=offset" json:"offset,omitempty"`
+	Offset *Offset `protobuf:"bytes,1,opt,name=offset" json:"offset,omitempty"`
 }
 
 func (m *AppendReply) Reset()                    { *m = AppendReply{} }
 func (m *AppendReply) String() string            { return proto.CompactTextString(m) }
 func (*AppendReply) ProtoMessage()               {}
-func (*AppendReply) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+func (*AppendReply) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
 
-func (m *AppendReply) GetOffset() string {
+func (m *AppendReply) GetOffset() *Offset {
 	if m != nil {
 		return m.Offset
 	}
-	return ""
+	return nil
+}
+
+type ReadRequest struct {
+	Offset *Offset `protobuf:"bytes,1,opt,name=offset" json:"offset,omitempty"`
+}
+
+func (m *ReadRequest) Reset()                    { *m = ReadRequest{} }
+func (m *ReadRequest) String() string            { return proto.CompactTextString(m) }
+func (*ReadRequest) ProtoMessage()               {}
+func (*ReadRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
+
+func (m *ReadRequest) GetOffset() *Offset {
+	if m != nil {
+		return m.Offset
+	}
+	return nil
+}
+
+type ReadReply struct {
+	From    *Offset `protobuf:"bytes,1,opt,name=from" json:"from,omitempty"`
+	Next    *Offset `protobuf:"bytes,2,opt,name=next" json:"next,omitempty"`
+	Payload []byte  `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
+}
+
+func (m *ReadReply) Reset()                    { *m = ReadReply{} }
+func (m *ReadReply) String() string            { return proto.CompactTextString(m) }
+func (*ReadReply) ProtoMessage()               {}
+func (*ReadReply) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
+
+func (m *ReadReply) GetFrom() *Offset {
+	if m != nil {
+		return m.From
+	}
+	return nil
+}
+
+func (m *ReadReply) GetNext() *Offset {
+	if m != nil {
+		return m.Next
+	}
+	return nil
+}
+
+func (m *ReadReply) GetPayload() []byte {
+	if m != nil {
+		return m.Payload
+	}
+	return nil
 }
 
 func init() {
+	proto.RegisterType((*Offset)(nil), "controller.Offset")
 	proto.RegisterType((*AppendRequest)(nil), "controller.AppendRequest")
 	proto.RegisterType((*AppendReply)(nil), "controller.AppendReply")
+	proto.RegisterType((*ReadRequest)(nil), "controller.ReadRequest")
+	proto.RegisterType((*ReadReply)(nil), "controller.ReadReply")
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -93,6 +179,7 @@ const _ = grpc.SupportPackageIsVersion4
 type StreamControllerClient interface {
 	// Sends a greeting
 	Append(ctx context.Context, in *AppendRequest, opts ...grpc.CallOption) (*AppendReply, error)
+	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadReply, error)
 }
 
 type streamControllerClient struct {
@@ -112,11 +199,21 @@ func (c *streamControllerClient) Append(ctx context.Context, in *AppendRequest, 
 	return out, nil
 }
 
+func (c *streamControllerClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadReply, error) {
+	out := new(ReadReply)
+	err := grpc.Invoke(ctx, "/controller.StreamController/Read", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Server API for StreamController service
 
 type StreamControllerServer interface {
 	// Sends a greeting
 	Append(context.Context, *AppendRequest) (*AppendReply, error)
+	Read(context.Context, *ReadRequest) (*ReadReply, error)
 }
 
 func RegisterStreamControllerServer(s *grpc.Server, srv StreamControllerServer) {
@@ -141,6 +238,24 @@ func _StreamController_Append_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StreamController_Read_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StreamControllerServer).Read(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/controller.StreamController/Read",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StreamControllerServer).Read(ctx, req.(*ReadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _StreamController_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "controller.StreamController",
 	HandlerType: (*StreamControllerServer)(nil),
@@ -148,6 +263,10 @@ var _StreamController_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Append",
 			Handler:    _StreamController_Append_Handler,
+		},
+		{
+			MethodName: "Read",
+			Handler:    _StreamController_Read_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -157,16 +276,23 @@ var _StreamController_serviceDesc = grpc.ServiceDesc{
 func init() { proto.RegisterFile("stream.proto", fileDescriptor0) }
 
 var fileDescriptor0 = []byte{
-	// 168 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x29, 0x2e, 0x29, 0x4a,
-	0x4d, 0xcc, 0xd5, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x4a, 0xce, 0xcf, 0x2b, 0x29, 0xca,
-	0xcf, 0xc9, 0x49, 0x2d, 0x52, 0xb2, 0xe5, 0xe2, 0x75, 0x2c, 0x28, 0x48, 0xcd, 0x4b, 0x09, 0x4a,
-	0x2d, 0x2c, 0x4d, 0x2d, 0x2e, 0x11, 0x92, 0xe0, 0x62, 0x2f, 0x48, 0xac, 0xcc, 0xc9, 0x4f, 0x4c,
-	0x91, 0x60, 0x54, 0x60, 0xd4, 0xe0, 0x09, 0x82, 0x71, 0x85, 0x84, 0xb8, 0x58, 0x8a, 0x2b, 0xf3,
-	0x92, 0x25, 0x98, 0x14, 0x18, 0x35, 0x38, 0x82, 0xc0, 0x6c, 0x25, 0x55, 0x2e, 0x6e, 0x98, 0xf6,
-	0x82, 0x9c, 0x4a, 0x21, 0x31, 0x2e, 0xb6, 0xfc, 0xb4, 0xb4, 0xe2, 0xd4, 0x12, 0xb0, 0x5e, 0xce,
-	0x20, 0x28, 0xcf, 0x28, 0x88, 0x4b, 0x20, 0x18, 0xec, 0x02, 0x67, 0xb8, 0xcd, 0x42, 0x76, 0x5c,
-	0x6c, 0x10, 0xad, 0x42, 0x92, 0x7a, 0x08, 0x07, 0xe9, 0xa1, 0xb8, 0x46, 0x4a, 0x1c, 0x9b, 0x54,
-	0x41, 0x4e, 0xa5, 0x12, 0x43, 0x12, 0x1b, 0xd8, 0x33, 0xc6, 0x80, 0x00, 0x00, 0x00, 0xff, 0xff,
-	0x6b, 0x73, 0xc8, 0x18, 0xdc, 0x00, 0x00, 0x00,
+	// 277 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x52, 0xcd, 0x4a, 0xc3, 0x40,
+	0x10, 0x36, 0x26, 0xc6, 0x3a, 0xad, 0x20, 0x03, 0x6a, 0xcc, 0xa9, 0xe4, 0x20, 0xc5, 0x43, 0x0e,
+	0xf5, 0xa2, 0x07, 0x05, 0xf1, 0x01, 0x94, 0xf5, 0x09, 0xd6, 0x74, 0x23, 0xc2, 0x36, 0xb3, 0x6e,
+	0xb6, 0x60, 0xde, 0xc1, 0x87, 0x96, 0x9d, 0x98, 0x98, 0xe0, 0x0f, 0xf4, 0x36, 0xc3, 0xf7, 0x33,
+	0x5f, 0xbe, 0x2c, 0xcc, 0x6a, 0x67, 0x95, 0x5c, 0xe7, 0xc6, 0x92, 0x23, 0x84, 0x82, 0x2a, 0x67,
+	0x49, 0x6b, 0x65, 0xb3, 0x47, 0x88, 0x1f, 0xca, 0xb2, 0x56, 0x0e, 0x4f, 0x20, 0x26, 0x9e, 0x92,
+	0x60, 0x1e, 0x2c, 0x42, 0xf1, 0xb5, 0x21, 0x42, 0x64, 0xe4, 0x8b, 0x4a, 0x76, 0xe7, 0xc1, 0x62,
+	0x4f, 0xf0, 0x8c, 0x29, 0x4c, 0x34, 0x15, 0xd2, 0xbd, 0x52, 0x95, 0x84, 0xcc, 0xee, 0xf7, 0xec,
+	0x06, 0x0e, 0xef, 0x8c, 0x51, 0xd5, 0x4a, 0xa8, 0xb7, 0x8d, 0xaa, 0x1d, 0x26, 0xb0, 0x6f, 0x64,
+	0xa3, 0x49, 0xae, 0xd8, 0x79, 0x26, 0xba, 0xd5, 0x5b, 0xd7, 0x4d, 0x55, 0xb0, 0xf5, 0x44, 0xf0,
+	0x9c, 0x5d, 0xc3, 0xb4, 0x93, 0x1b, 0xdd, 0xe0, 0xc5, 0x28, 0xd5, 0x74, 0x89, 0xf9, 0x77, 0xf8,
+	0xbc, 0x4d, 0xde, 0x25, 0xf5, 0x52, 0xa1, 0x64, 0x7f, 0x77, 0x1b, 0xe9, 0x06, 0x0e, 0x5a, 0xa9,
+	0xbf, 0x79, 0x0e, 0x51, 0x69, 0x69, 0xfd, 0x8f, 0x8c, 0x71, 0xcf, 0xab, 0xd4, 0xbb, 0xe3, 0xf8,
+	0x7f, 0xf0, 0x3c, 0x3e, 0x2c, 0x20, 0x1c, 0x15, 0xb0, 0xfc, 0x08, 0xe0, 0xe8, 0x89, 0x7f, 0xcd,
+	0x7d, 0xaf, 0xc5, 0x5b, 0x88, 0xdb, 0x06, 0xf0, 0x6c, 0x68, 0x39, 0x2a, 0x35, 0x3d, 0xfd, 0x0d,
+	0x32, 0xba, 0xc9, 0x76, 0xf0, 0x0a, 0x22, 0xff, 0x2d, 0x38, 0xa2, 0x0c, 0x8a, 0x49, 0x8f, 0x7f,
+	0x02, 0xac, 0x7c, 0x8e, 0xf9, 0x7d, 0x5c, 0x7e, 0x06, 0x00, 0x00, 0xff, 0xff, 0xf5, 0x86, 0x5a,
+	0x18, 0x2f, 0x02, 0x00, 0x00,
 }

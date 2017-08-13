@@ -30,7 +30,7 @@ func NewPayloadSet() *PayloadSet{
 
 func (this *PayloadSet) Append(payload SinglePayload) int {
 	header := HeaderAndOffset{
-		Header: newHeader(payload),
+		Header: newHeader(EmptyLogOffset, payload),
 		Offset: int64(this.buffer.Len()),
 	}
 
@@ -73,10 +73,10 @@ func (this SinglePayload) Len64() int64 {
 	return int64(this.Len())
 }
 
-func (this SinglePayload) ToBytes() []byte {
+func (this SinglePayload) ToBytes(offset LogOffset) []byte {
 	buffer := make([]byte, this.SizeOnDisk())
 
-	header := newHeader(this)
+	header := newHeader(offset, this)
 	copy(buffer, header.ToBytes())
 	copy(buffer[HEADER_SIZE:], this)
 
@@ -111,8 +111,10 @@ func (this SinglePayload) Hash() uint64 {
 	return xxhash.Sum64(this)
 }
 
+var EmptyLogOffset = LogOffset{}
+
 type LogOffset struct{
-	Offset int32
+	Offset int64
 	Page int32
 	Location int64
 }
@@ -141,7 +143,7 @@ func ParseLogOffset(value string) (LogOffset, error) {
 	}
 
 	return LogOffset{
-		Offset: int32(offset),
+		Offset: offset,
 		Page: int32(page),
 		Location: location,
 	}, nil

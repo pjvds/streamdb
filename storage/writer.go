@@ -65,7 +65,7 @@ func OpenLogStream(log *zap.Logger, directory string) (*LogStream, error) {
 type LogStream struct {
 	log *zap.Logger
 
-	offset   int32
+	offset   int64
 	pages    []*LogPage
 	tailPage *LogPage
 
@@ -117,7 +117,7 @@ func (this *LogStream) Append(payload Payload) (LogOffset, error) {
 	}
 
 	offset := this.offset
-	this.offset = offset + int32(payload.EntryCount())
+	this.offset = offset + int64(payload.EntryCount())
 
 	page := int32(len(this.pages))
 
