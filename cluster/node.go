@@ -102,7 +102,7 @@ func (this *FollowerState) Run(ctx context.Context) (NodeState, error) {
 	localCtx, cancel := context.WithCancel(ctx)
 
 	leaderChanges := this.elector.Follow(localCtx)
-	wins, err := this.elector.Elect(ctx)
+	wins, err := this.elector.Elect(localCtx)
 	if err != nil {
 		return nil, errors.WithMessage(err, "elector failed to elect")
 	}
