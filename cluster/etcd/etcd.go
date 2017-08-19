@@ -6,7 +6,6 @@ import (
 	"golang.org/x/net/context"
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/pjvds/streamdb/cluster"
-	"github.com/pkg/errors"
 )
 
 type EtcdElector struct{
@@ -39,6 +38,10 @@ func (this *MasterLock) Resign() {
 	this.election.Resign(context.Background())
 }
 
+func (this *MasterLock) Close() {
+	this.session.Close()
+}
+
 func (this *EtcdElector) Follow(ctx context.Context) cluster.Follower {
 	changes := make(chan string)
 	go this.follow(ctx, changes)
@@ -67,24 +70,25 @@ func (this *EtcdElector) follow(ctx context.Context, changes chan string) {
 	}
 }
 
-func (this *EtcdElector) Elect(ctx context.Context) (cluster.Election, error) {
-	session, err := concurrency.NewSession(this.client, concurrency.WithContext(ctx), concurrency.WithTTL(5))
-	if err != nil {
-		return nil, errors.WithMessage(err,"etcd concurrency session creation failed")
-	}
-
-	log := this.log.With(zap.Any("lease", session.Lease()))
-
+func (this *EtcdElector) Elect(ctx context.Context) (cluster.Election) {
 	won := make(chan cluster.MasterLock)
+	log := this.log
 
 	go func() {
 		defer close(won)
-
 		log.Debug("etcd election started", zap.String("key", this.key))
 
+		session, err := concurrency.NewSession(this.client, concurrency.WithTTL(5))
+		if err != nil {
+			this.log.Error("etcd concurrency session creation failed", zap.Error(err))
+			return
+		}
+
+		log := this.log.With(zap.Any("lease", session.Lease()))
 		election := concurrency.NewElection(session, this.key)
+
 		if err := election.Campaign(ctx, this.value); err != nil {
-			log.Warn("etcd election campaign failed", zap.Error(err))
+			log.Error("etcd election campaign failed", zap.Error(err))
 			return
 		}
 
@@ -97,5 +101,5 @@ func (this *EtcdElector) Elect(ctx context.Context) (cluster.Election, error) {
 		}
 	}()
 
-	return won, nil
+	return won
 }
